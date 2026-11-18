@@ -6,6 +6,7 @@ from wtforms import (
     SelectField,
     TextAreaField,
     SubmitField,
+    DateField,
 )
 from wtforms.validators import (
     DataRequired,
@@ -90,7 +91,7 @@ class MahasiswaForm(FlaskForm):
             NumberRange(
                 min=0,
                 max=100,
-                message="Kehadiran harus berada dalam rentang 0 hingga 100%.",
+                message="Kehadiran harus berada dalam rentang %(min)s hingga %(max)s persen.",
             ),
         ],
     )
@@ -115,6 +116,78 @@ class MahasiswaForm(FlaskForm):
             raise ValidationError(
                 f"NIM '{field.data}' sudah terdaftar dalam sistem. Silakan gunakan NIM lain."
             )
+
+
+class MahasiswaEditForm(FlaskForm):
+    """Formulir edit data mahasiswa dengan NIM bersifat read-only."""
+
+    nim = StringField(
+        "NIM (Nomor Induk Mahasiswa)",
+        render_kw={"readonly": True},
+    )
+
+    nama = StringField(
+        "Nama Lengkap",
+        validators=[
+            DataRequired(message="Nama lengkap wajib diisi."),
+            Length(
+                min=3,
+                max=100,
+                message="Nama harus memiliki panjang antara 3 hingga 100 karakter.",
+            ),
+        ],
+    )
+
+    prodi = SelectField(
+        "Program Studi",
+        choices=[
+            ("", "-- Pilih Program Studi --"),
+            ("SI", "Sistem Informasi (SI)"),
+            ("TI", "Teknologi Informasi (TI)"),
+            ("MI", "Manajemen Informatika (MI)"),
+        ],
+        validators=[
+            DataRequired(message="Silakan pilih program studi."),
+            AnyOf(
+                values=["SI", "TI", "MI"],
+                message="Program studi harus salah satu dari: SI, TI, atau MI.",
+            ),
+        ],
+    )
+
+    ipk = FloatField(
+        "Indeks Prestasi Kumulatif (IPK)",
+        validators=[
+            InputRequired(message="IPK wajib diisi."),
+            NumberRange(
+                min=0.0,
+                max=4.0,
+                message="IPK harus berada dalam rentang 0.00 hingga 4.00.",
+            ),
+        ],
+    )
+
+    kehadiran = IntegerField(
+        "Persentase Kehadiran (%)",
+        validators=[
+            InputRequired(message="Persentase kehadiran wajib diisi."),
+            NumberRange(
+                min=0,
+                max=100,
+                message="Kehadiran harus berada dalam rentang %(min)s hingga %(max)s persen.",
+            ),
+        ],
+    )
+
+    email = StringField(
+        "Alamat Email (Opsional)",
+        validators=[
+            Optional(),
+            Email(message="Format alamat email tidak valid."),
+        ],
+    )
+
+    submit = SubmitField("Simpan Perubahan")
 
 
 # ==============================================================================
@@ -153,3 +226,64 @@ class CatatanForm(FlaskForm):
     )
 
     submit = SubmitField("Simpan Catatan")
+
+
+class RencanaIntervensiForm(FlaskForm):
+    """Formulir untuk membuat rencana tindak lanjut mahasiswa."""
+
+    judul = StringField(
+        "Judul Rencana",
+        validators=[
+            DataRequired(message="Judul rencana wajib diisi."),
+            Length(
+                min=3,
+                max=120,
+                message="Judul rencana harus memiliki panjang 3 hingga 120 karakter.",
+            ),
+        ],
+    )
+    deskripsi = TextAreaField(
+        "Langkah Tindak Lanjut",
+        validators=[
+            DataRequired(message="Langkah tindak lanjut wajib diisi."),
+            Length(
+                min=10,
+                max=1000,
+                message="Langkah tindak lanjut harus memiliki panjang 10 hingga 1000 karakter.",
+            ),
+        ],
+    )
+    penanggung_jawab = StringField(
+        "Penanggung Jawab",
+        validators=[
+            DataRequired(message="Penanggung jawab wajib diisi."),
+            Length(
+                min=3,
+                max=100,
+                message="Nama penanggung jawab harus memiliki panjang 3 hingga 100 karakter.",
+            ),
+        ],
+    )
+    tenggat = DateField(
+        "Tenggat Tindak Lanjut",
+        format="%Y-%m-%d",
+        validators=[InputRequired(message="Tenggat wajib diisi.")],
+    )
+
+    submit = SubmitField("Simpan Rencana")
+
+
+class UbahStatusRencanaForm(FlaskForm):
+    """Formulir untuk memperbarui status rencana tindak lanjut."""
+
+    status = SelectField(
+        "Status",
+        choices=[
+            ("Belum dimulai", "Belum dimulai"),
+            ("Berjalan", "Berjalan"),
+            ("Selesai", "Selesai"),
+        ],
+        validators=[DataRequired(message="Silakan pilih status rencana.")],
+    )
+
+    submit = SubmitField("Perbarui Status")

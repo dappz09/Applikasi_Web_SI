@@ -1,5 +1,6 @@
 import os
 import unittest
+from datetime import date, timedelta
 
 # ==============================================================================
 # KONFIGURASI PENGUJIAN ISOLASI (IN-MEMORY DATABASE & NONAKTIFKAN CSRF)
@@ -8,7 +9,7 @@ import unittest
 os.environ["DATABASE_URL"] = "sqlite://"
 
 from app import app
-from models import db, Mahasiswa, Catatan
+from models import db, Mahasiswa, Catatan, RencanaIntervensi
 
 # Set konfigurasi pengujian
 app.config["TESTING"] = True
@@ -202,6 +203,160 @@ class TestSIPeringatanDini(unittest.TestCase):
         self.assertEqual(data["nim"], "A11.2023.00001")
         self.assertEqual(data["predikat"], "Dengan Pujian (Cumlaude)")
         self.assertEqual(data["kehadiran"], "92.0%")
+
+    def test_tambah_dan_perbarui_status_rencana_intervensi(self):
+        """Memastikan rencana tersimpan dan statusnya dapat diperbarui."""
+        payload = {
+            "judul": "Bimbingan akademik",
+            "deskripsi": "Jadwalkan sesi bimbingan dan evaluasi mata kuliah.",
+            "penanggung_jawab": "Dosen Wali",
+            "tenggat": (date.today() + timedelta(days=7)).isoformat(),
+        }
+        response = self.client.post(
+            "/mahasiswa/A11.2023.00001/rencana",
+            data=payload,
+        )
+        self.assertEqual(response.status_code, 302)
+
+        rencana = db.session.scalar(db.select(RencanaIntervensi))
+        self.assertIsNotNone(rencana)
+        self.assertEqual(rencana.status, "Belum dimulai")
+        self.assertEqual(rencana.mahasiswa.nim, "A11.2023.00001")
+
+        detail = self.client.get("/mahasiswa/A11.2023.00001")
+        self.assertEqual(detail.status_code, 200)
+        self.assertIn("Bimbingan akademik", detail.get_data(as_text=True))
+
+        response = self.client.post(
+            f"/rencana/{rencana.id}/status",
+            data={"status": "Selesai"},
+        )
+        self.assertEqual(response.status_code, 302)
+        db.session.refresh(rencana)
+        self.assertEqual(rencana.status, "Selesai")
+
+    def test_rencana_intervensi_tidak_menyimpan_data_tidak_valid(self):
+        """Memastikan validasi rencana menampilkan error tanpa menyimpan data."""
+        response = self.client.post(
+            "/mahasiswa/A11.2023.00001/rencana",
+            data={
+                "judul": "AB",
+                "deskripsi": "Pendek",
+                "penanggung_jawab": "",
+                "tenggat": "tanggal-salah",
+            },
+        )
+        self.assertEqual(response.status_code, 422)
+        self.assertIn(
+            "Judul rencana harus memiliki panjang",
+            response.get_data(as_text=True),
+        )
+        self.assertEqual(db.session.scalar(db.select(RencanaIntervensi)), None)
+
+    def test_dashboard_menampilkan_rencana_terlambat(self):
+        """Memastikan tindak lanjut lewat tenggat ditandai di dashboard."""
+        rencana = RencanaIntervensi(
+            mahasiswa_id=self.mhs_awal.id,
+            judul="Tindak lanjut presensi",
+            deskripsi="Hubungi mahasiswa untuk menyusun perbaikan presensi.",
+            penanggung_jawab="Dosen Wali",
+            tenggat=date.today() - timedelta(days=1),
+        )
+        db.session.add(rencana)
+        db.session.commit()
+
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("Tindak lanjut presensi", html)
+        self.assertIn("Terlambat", html)
+
+    # ==========================================================================
+    # SKENARIO 9: Fitur Edit Mahasiswa (GET 200, POST 302, & POST 422)
+    # ==========================================================================
+    def test_get_edit_mahasiswa_sukses(self):
+        """Memastikan rute GET /mahasiswa/<nim>/edit mengembalikan 200 dan form berisi data lama."""
+        response = self.client.get(f"/mahasiswa/{self.mhs_awal.nim}/edit")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn(self.mhs_awal.nim, html)
+        self.assertIn(self.mhs_awal.nama, html)
+
+    def test_post_edit_mahasiswa_valid_status_302(self):
+        """Memastikan perubahan data mahasiswa berhasil disimpan dan redirect ke detail."""
+        payload_edit = {
+            "nama": "Ahmad Fauzi Updated",
+            "prodi": "TI",
+            "ipk": 2.20,  # Ubah menjadi nilai berisiko (< 2.50)
+            "kehadiran": 70,  # Ubah menjadi nilai berisiko (< 75%)
+            "email": "ahmad.baru@kampus.ac.id",
+        }
+        response = self.client.post(
+            f"/mahasiswa/{self.mhs_awal.nim}/edit",
+            data=payload_edit,
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(f"/mahasiswa/{self.mhs_awal.nim}", response.headers["Location"])
+
+        # Verifikasi data terupdate di database
+        db.session.refresh(self.mhs_awal)
+        self.assertEqual(self.mhs_awal.nama, "Ahmad Fauzi Updated")
+        self.assertEqual(self.mhs_awal.prodi, "TI")
+        self.assertEqual(self.mhs_awal.ipk, 2.20)
+        self.assertEqual(self.mhs_awal.kehadiran, 70)
+        self.assertEqual(self.mhs_awal.email, "ahmad.baru@kampus.ac.id")
+        self.assertTrue(self.mhs_awal.is_berisiko)
+
+    def test_post_edit_mahasiswa_invalid_status_422(self):
+        """Memastikan pengiriman data edit yang salah menghasilkan status 422."""
+        payload_salah = {
+            "nama": "",  # Wajib diisi
+            "prodi": "INVALID",
+            "ipk": 6.0,  # Di luar rentang
+            "kehadiran": 200,
+        }
+        response = self.client.post(
+            f"/mahasiswa/{self.mhs_awal.nim}/edit",
+            data=payload_salah,
+        )
+        self.assertEqual(response.status_code, 422)
+        html = response.get_data(as_text=True)
+        self.assertIn("Nama lengkap wajib diisi.", html)
+
+    # ==========================================================================
+    # SKENARIO 10: Fitur Ekspor Data Mahasiswa ke CSV (/ekspor/mahasiswa)
+    # ==========================================================================
+    def test_ekspor_csv_mahasiswa(self):
+        """Memastikan file CSV berhasil digenerate dengan header dan isi data mahasiswa."""
+        # Tambah mahasiswa kedua berstatus berisiko
+        mhs_berisiko = Mahasiswa(
+            nim="A11.2023.00002",
+            nama="Budi Santoso",
+            prodi="TI",
+            ipk=2.10,
+            kehadiran=60,
+            email="budi@kampus.ac.id",
+        )
+        db.session.add(mhs_berisiko)
+        db.session.commit()
+
+        # 1. Ekspor semua mahasiswa
+        response = self.client.get("/ekspor/mahasiswa")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.mimetype, "text/csv")
+        self.assertIn("attachment; filename=", response.headers["Content-Disposition"])
+
+        csv_text = response.get_data(as_text=True)
+        self.assertIn("NIM,Nama Lengkap,Program Studi,IPK,Predikat,Kehadiran (%),Status EWS", csv_text)
+        self.assertIn("Ahmad Fauzi", csv_text)
+        self.assertIn("Budi Santoso", csv_text)
+
+        # 2. Ekspor filter berisiko saja
+        response_berisiko = self.client.get("/ekspor/mahasiswa?status=berisiko")
+        self.assertEqual(response_berisiko.status_code, 200)
+        csv_berisiko = response_berisiko.get_data(as_text=True)
+        self.assertIn("Budi Santoso", csv_berisiko)
+        self.assertNotIn("Ahmad Fauzi", csv_berisiko)  # Ahmad Fauzi IPK 3.75 & 92% presensi
 
 
 if __name__ == "__main__":

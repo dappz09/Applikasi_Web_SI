@@ -26,6 +26,11 @@
             <i class="bi bi-person-plus-fill me-1"></i> Tambah Mahasiswa
         </a>
 
+        <!-- Tombol Ekspor CSV -->
+        <a href="{{ url_for('ekspor_mahasiswa', prodi=prodi_aktif) }}" class="btn btn-outline-success btn-sm shadow-sm" title="Unduh data dalam format CSV">
+            <i class="bi bi-file-earmark-spreadsheet-fill me-1"></i> Ekspor CSV
+        </a>
+
         <!-- Filter Cepat Prodi -->
         <div class="btn-group shadow-sm">
             <a href="{{ url_for('daftar_mahasiswa') }}" class="btn btn-outline-secondary btn-sm {% if not prodi_aktif %}active{% endif %}">
@@ -80,6 +85,9 @@
                             <div class="d-inline-flex gap-1">
                                 <a href="{{ url_for('detail_mahasiswa', nim=m.nim) }}" class="btn btn-sm btn-primary" title="Lihat Profil & Catatan">
                                     <i class="bi bi-person-badge"></i> Detail
+                                </a>
+                                <a href="{{ url_for('edit_mahasiswa', nim=m.nim) }}" class="btn btn-sm btn-outline-warning" title="Edit Data Mahasiswa">
+                                    <i class="bi bi-pencil-square"></i>
                                 </a>
                                 <a href="{{ url_for('api_mahasiswa', nim=m.nim) }}" target="_blank" class="btn btn-sm btn-outline-dark" title="Lihat JSON API">
                                     <i class="bi bi-code-slash"></i>

@@ -42,15 +42,79 @@
     </div>
 </div>
 
+<div class="card border-0 shadow-sm rounded-3 mb-4">
+    <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+        <h5 class="fw-bold mb-0 text-dark">
+            <i class="bi bi-calendar-check me-1 text-primary"></i> Tindak Lanjut Aktif
+        </h5>
+        {% if total_rencana_terlambat %}
+        <span class="badge bg-danger">{{ total_rencana_terlambat }} Terlambat</span>
+        {% endif %}
+    </div>
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th class="ps-3">Rencana</th>
+                    <th>Mahasiswa</th>
+                    <th>Penanggung Jawab</th>
+                    <th>Tenggat</th>
+                    <th>Status</th>
+                    <th class="text-center pe-3">Aksi</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for rencana in rencana_aktif %}
+                <tr class="{% if rencana.is_terlambat %}table-danger-subtle{% endif %}">
+                    <td class="ps-3 fw-semibold">{{ rencana.judul }}</td>
+                    <td>{{ rencana.mahasiswa.nama | title }}</td>
+                    <td>{{ rencana.penanggung_jawab }}</td>
+                    <td>
+                        {{ rencana.tenggat.strftime('%d-%m-%Y') }}
+                        {% if rencana.is_terlambat %}
+                        <span class="badge bg-danger ms-1">Terlambat</span>
+                        {% elif rencana.tenggat <= batas_dekat %}
+                        <span class="badge bg-warning text-dark ms-1">Segera</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <span class="badge {% if rencana.status == 'Berjalan' %}bg-primary{% else %}bg-secondary{% endif %}">
+                            {{ rencana.status }}
+                        </span>
+                    </td>
+                    <td class="text-center pe-3">
+                        <a href="{{ url_for('detail_mahasiswa', nim=rencana.mahasiswa.nim) }}" class="btn btn-sm btn-outline-primary">Detail</a>
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="6" class="text-center py-4 text-muted">
+                        Belum ada rencana tindak lanjut aktif.
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <div class="card-footer bg-light py-2 px-3 text-muted small">
+        Menampilkan hingga 10 rencana aktif dengan tenggat terdekat.
+    </div>
+</div>
+
 <!-- Daftar Mahasiswa Berisiko -->
 <div class="card border-0 shadow-sm rounded-3">
-    <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+    <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center flex-wrap gap-2">
         <h5 class="fw-bold mb-0 text-danger">
             <i class="bi bi-bell-fill me-1"></i> Perhatian: Mahasiswa dalam Status Peringatan
         </h5>
-        <a href="{{ url_for('daftar_mahasiswa') }}" class="btn btn-sm btn-outline-primary">
-            Lihat Semua Mahasiswa ({{ total_mahasiswa }})
-        </a>
+        <div class="d-flex gap-2">
+            <a href="{{ url_for('ekspor_mahasiswa', status='berisiko') }}" class="btn btn-sm btn-outline-danger shadow-sm" title="Unduh CSV Mahasiswa Berisiko">
+                <i class="bi bi-file-earmark-arrow-down me-1"></i> Ekspor CSV Berisiko
+            </a>
+            <a href="{{ url_for('daftar_mahasiswa') }}" class="btn btn-sm btn-outline-primary">
+                Lihat Semua Mahasiswa ({{ total_mahasiswa }})
+            </a>
+        </div>
     </div>
     <div class="card-body p-0">
         <div class="table-responsive">

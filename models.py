@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy import func
@@ -30,6 +30,11 @@ class Mahasiswa(db.Model):
     # - cascade="all, delete-orphan": catatan otomatis terhapus jika mahasiswa pemilik dihapus
     catatan: Mapped[list["Catatan"]] = db.relationship(
         "Catatan",
+        back_populates="mahasiswa",
+        cascade="all, delete-orphan",
+    )
+    rencana_intervensi: Mapped[list["RencanaIntervensi"]] = db.relationship(
+        "RencanaIntervensi",
         back_populates="mahasiswa",
         cascade="all, delete-orphan",
     )
@@ -79,3 +84,43 @@ class Catatan(db.Model):
 
     def __repr__(self) -> str:
         return f"<Catatan id={self.id} jenis='{self.jenis}' mahasiswa_id={self.mahasiswa_id}>"
+
+
+class RencanaIntervensi(db.Model):
+    """Model rencana tindakan dan tindak lanjut untuk mahasiswa."""
+
+    __tablename__ = "rencana_intervensi"
+
+    id: Mapped[int] = mapped_column(db.Integer, primary_key=True, autoincrement=True)
+    mahasiswa_id: Mapped[int] = mapped_column(
+        db.Integer,
+        db.ForeignKey("mahasiswa.id"),
+        nullable=False,
+    )
+    judul: Mapped[str] = mapped_column(db.String(120), nullable=False)
+    deskripsi: Mapped[str] = mapped_column(db.Text, nullable=False)
+    penanggung_jawab: Mapped[str] = mapped_column(db.String(100), nullable=False)
+    tenggat: Mapped[date] = mapped_column(db.Date, nullable=False)
+    status: Mapped[str] = mapped_column(
+        db.String(20),
+        nullable=False,
+        default="Belum dimulai",
+    )
+    dibuat: Mapped[datetime] = mapped_column(
+        db.DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    mahasiswa: Mapped["Mahasiswa"] = db.relationship(
+        "Mahasiswa",
+        back_populates="rencana_intervensi",
+    )
+
+    @property
+    def is_terlambat(self) -> bool:
+        return self.status != "Selesai" and self.tenggat < date.today()
+
+    def __repr__(self) -> str:
+        return f"<RencanaIntervensi id={self.id} judul='{self.judul}' status='{self.status}'>"

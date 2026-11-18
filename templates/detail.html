@@ -12,14 +12,21 @@
                 <i class="bi bi-arrow-left me-1"></i> Kembali ke Daftar Mahasiswa
             </a>
 
-            <!-- Form POST Hapus Mahasiswa dengan perlindungan CSRF -->
-            <form action="{{ url_for('hapus_mahasiswa', nim=mahasiswa.nim) }}" method="POST" 
-                  onsubmit="return confirm('Apakah Anda yakin ingin menghapus mahasiswa ini? Seluruh catatan konseling terkait akan ikut terhapus secara permanen.');">
-                {{ form.hidden_tag() }}
-                <button type="submit" class="btn btn-outline-danger btn-sm">
-                    <i class="bi bi-trash-fill me-1"></i> Hapus Mahasiswa
-                </button>
-            </form>
+            <div class="d-flex gap-2">
+                <!-- Tombol Edit Mahasiswa -->
+                <a href="{{ url_for('edit_mahasiswa', nim=mahasiswa.nim) }}" class="btn btn-outline-warning btn-sm">
+                    <i class="bi bi-pencil-square me-1"></i> Edit Data
+                </a>
+
+                <!-- Form POST Hapus Mahasiswa dengan perlindungan CSRF -->
+                <form action="{{ url_for('hapus_mahasiswa', nim=mahasiswa.nim) }}" method="POST" 
+                      onsubmit="return confirm('Apakah Anda yakin ingin menghapus mahasiswa ini? Seluruh catatan konseling terkait akan ikut terhapus secara permanen.');">
+                    {{ form.hidden_tag() }}
+                    <button type="submit" class="btn btn-outline-danger btn-sm">
+                        <i class="bi bi-trash-fill me-1"></i> Hapus Mahasiswa
+                    </button>
+                </form>
+            </div>
         </div>
 
         <!-- Profil Mahasiswa Card -->
@@ -92,6 +99,69 @@
                     <i class="bi bi-filetype-json me-1"></i> Endpoint JSON
                 </a>
                 <span class="text-muted small">Database ID: #{{ mahasiswa.id }}</span>
+            </div>
+        </div>
+
+        <div class="card border-0 shadow-sm rounded-3 mb-4">
+            <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+                <h6 class="fw-bold mb-0 text-dark">
+                    <i class="bi bi-list-check me-1 text-primary"></i> Rencana Intervensi & Tindak Lanjut
+                </h6>
+                <span class="badge bg-primary-subtle text-primary">{{ mahasiswa.rencana_intervensi | length }} Rencana</span>
+            </div>
+            <div class="card-body">
+                <div class="row g-4">
+                    <div class="col-lg-7">
+                        {% for rencana in mahasiswa.rencana_intervensi | sort(attribute="tenggat") %}
+                        <div class="border rounded-3 p-3 mb-3">
+                            <div class="d-flex justify-content-between align-items-start gap-2">
+                                <div>
+                                    <h6 class="fw-bold mb-1">{{ rencana.judul }}</h6>
+                                    <p class="text-secondary small mb-2" style="white-space: pre-wrap;">{{ rencana.deskripsi }}</p>
+                                </div>
+                                {% if rencana.status == "Selesai" %}
+                                    <span class="badge bg-success">Selesai</span>
+                                {% elif rencana.is_terlambat %}
+                                    <span class="badge bg-danger">Terlambat</span>
+                                {% elif rencana.status == "Berjalan" %}
+                                    <span class="badge bg-primary">Berjalan</span>
+                                {% else %}
+                                    <span class="badge bg-warning text-dark">Belum dimulai</span>
+                                {% endif %}
+                            </div>
+                            <div class="small text-muted mb-2">
+                                Penanggung jawab: <strong>{{ rencana.penanggung_jawab }}</strong>
+                                &bull; Tenggat: <strong>{{ rencana.tenggat.strftime('%d-%m-%Y') }}</strong>
+                            </div>
+                            <form action="{{ url_for('ubah_status_rencana', rencana_id=rencana.id) }}" method="POST" class="d-flex gap-2">
+                                {{ status_rencana_forms[rencana.id].hidden_tag() }}
+                                {{ status_rencana_forms[rencana.id].status(class="form-select form-select-sm", aria_label="Status rencana") }}
+                                <button type="submit" class="btn btn-sm btn-outline-primary text-nowrap">Perbarui Status</button>
+                            </form>
+                        </div>
+                        {% else %}
+                        <div class="text-center py-4 text-muted">
+                            <i class="bi bi-clipboard2-check fs-2 d-block mb-2"></i>
+                            Belum ada rencana tindak lanjut untuk mahasiswa ini.
+                        </div>
+                        {% endfor %}
+                    </div>
+                    <div class="col-lg-5">
+                        <h6 class="fw-bold mb-3">Buat Rencana Baru</h6>
+                        <form action="{{ url_for('tambah_rencana_intervensi', nim=mahasiswa.nim) }}" method="POST" novalidate>
+                            {{ rencana_form.hidden_tag() }}
+                            {{ render_field(rencana_form.judul, placeholder="Contoh: Bimbingan akademik mingguan") }}
+                            {{ render_field(rencana_form.deskripsi, placeholder="Tuliskan langkah tindak lanjut...", rows="3") }}
+                            {{ render_field(rencana_form.penanggung_jawab, placeholder="Nama dosen wali atau petugas") }}
+                            {{ render_field(rencana_form.tenggat) }}
+                            <div class="d-grid">
+                                <button type="submit" class="btn btn-primary btn-sm">
+                                    <i class="bi bi-plus-circle me-1"></i> Simpan Rencana
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
             </div>
         </div>
 

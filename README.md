@@ -36,8 +36,8 @@ Aplikasi ini dirancang untuk mendeteksi secara dini mahasiswa yang membutuhkan b
 ```text
 Applikasi_Web_SI/
 ├── app.py                     # Entry point aplikasi Flask, routing, controller & custom CLI
-├── models.py                  # Definisi skema ORM (Mahasiswa & Catatan) SQLAlchemy 2.x
-├── forms.py                   # Form WTForms dengan validasi regex & unique database check
+├── models.py                  # Definisi skema ORM (Mahasiswa, Catatan & RencanaIntervensi)
+├── forms.py                   # Form WTForms dengan validasi sisi server
 ├── uji_app.py                 # Automated unit tests (in-memory SQLite & mock HTTP client)
 ├── requirements.txt           # Daftar pustaka dependensi produksi & pengujian
 ├── siews.db                   # Basis data SQLite lokal (dibuat otomatis saat seed/run)
@@ -48,6 +48,7 @@ Applikasi_Web_SI/
     ├── index.html             # Dashboard statistik mahasiswa berisiko
     ├── mahasiswa.html         # Tabel data mahasiswa dengan filter ?prodi=
     ├── tambah.html            # Formulir tambah mahasiswa baru via makro Jinja
+    ├── edit.html              # Formulir edit data mahasiswa (NIM read-only)
     ├── detail.html            # Profil mahasiswa, riwayat catatan & form hapus
     ├── cari.html              # Form pencarian mahasiswa dengan arsitektur PRG
     └── 404.html               # Halaman kustom penanganan error HTTP 404
@@ -61,6 +62,7 @@ Applikasi_Web_SI/
 - **Model `Mahasiswa`**: Kolom `id` (PK), `nim` (String 14, unique), `nama`, `prodi`, `ipk` (Float), `kehadiran` (Integer), `email` (String nullable).
 - **Model `Catatan`**: Kolom `id` (PK), `mahasiswa_id` (FK), `jenis`, `isi`, `dibuat` (DateTime UTC default).
 - **Relasi One-to-Many**: Dihubungkan dengan parameter `back_populates` di kedua sisi model untuk navigasi dua arah, serta `cascade="all, delete-orphan"` agar catatan otomatis terhapus saat mahasiswa dihapus.
+- **Model `RencanaIntervensi`**: Menyimpan langkah tindak lanjut, penanggung jawab, tenggat, dan status (`Belum dimulai`, `Berjalan`, atau `Selesai`). Rencana yang melewati tenggat ditandai di dashboard dan profil mahasiswa.
 
 ### 2. Validasi Form Sisi Server (`forms.py`)
 - **`MahasiswaForm`**:
@@ -80,6 +82,8 @@ Applikasi_Web_SI/
 
 ### 4. Custom CLI Seeder (`@app.cli.command("seed")`)
 Perintah terminal khusus untuk me-reset tabel dan mengisi 5 data dummy mahasiswa beserta catatan konseling awal.
+
+Untuk menambahkan tabel yang belum tersedia ke database yang sudah berisi data, jalankan `flask init-db`. Perintah ini hanya membuat tabel yang belum ada dan tidak menghapus data. Perintah `flask seed` tetap mereset seluruh tabel dan datanya.
 
 ---
 
@@ -210,8 +214,13 @@ Klik tombol hijau **Reload <username>.pythonanywhere.com** dan situs Anda telah 
 | `GET` | `/mahasiswa` | Tabel data mahasiswa (mendukung query string `?prodi=`) | `200 OK` |
 | `GET` | `/mahasiswa/tambah` | Menampilkan form pendaftaran mahasiswa baru (`tambah.html`) | `200 OK` |
 | `POST` | `/mahasiswa/tambah` | Menyimpan data mahasiswa (Redirect jika valid, 422 jika gagal) | `302` / `422` |
+| `GET` | `/mahasiswa/<nim>/edit` | Menampilkan form pembaruan data mahasiswa (`edit.html`) | `200 OK` / `404` |
+| `POST` | `/mahasiswa/<nim>/edit` | Menyimpan perubahan data mahasiswa (Redirect jika valid, 422 jika gagal) | `302` / `422` |
+| `GET` | `/ekspor/mahasiswa` | Mengunduh berkas laporan CSV (filter `?status=berisiko` / `?status=semua`) | `200 OK` |
 | `GET` | `/mahasiswa/<nim>` | Halaman detail profil, riwayat catatan & form tambah catatan | `200 OK` / `404` |
 | `POST` | `/mahasiswa/<nim>` | Menyimpan catatan konseling baru milik mahasiswa terkait (PRG) | `302 Redirect` |
+| `POST` | `/mahasiswa/<nim>/rencana` | Membuat rencana intervensi mahasiswa (PRG) | `302 Redirect` |
+| `POST` | `/rencana/<id>/status` | Memperbarui status tindak lanjut (`Belum dimulai`, `Berjalan`, `Selesai`) | `302 Redirect` |
 | `POST` | `/mahasiswa/<nim>/hapus` | Menghapus mahasiswa beserta seluruh catatan terkait (*cascade*) | `302 Redirect` |
 | `GET` | `/cari` | Menampilkan antarmuka pencarian mahasiswa | `200 OK` |
 | `POST` | `/cari` | Memproses pencarian dan mengalihkan ke rute GET tujuan (PRG) | `302 Redirect` |

@@ -1,4 +1,7 @@
 import os
+import csv
+import io
+from datetime import date, timedelta
 from flask import (
     Flask,
     render_template,
@@ -8,9 +11,16 @@ from flask import (
     jsonify,
     abort,
     flash,
+    Response,
 )
-from models import db, Mahasiswa, Catatan
-from forms import MahasiswaForm, CatatanForm
+from models import db, Mahasiswa, Catatan, RencanaIntervensi
+from forms import (
+    MahasiswaForm,
+    MahasiswaEditForm,
+    CatatanForm,
+    RencanaIntervensiForm,
+    UbahStatusRencanaForm,
+)
 
 app = Flask(__name__)
 
@@ -25,6 +35,10 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 # Inisialisasi Database
 db.init_app(app)
+
+# Otomatis buat tabel skema yang belum ada di database saat aplikasi dijalankan
+with app.app_context():
+    db.create_all()
 
 
 # ==============================================================================
@@ -82,6 +96,20 @@ def index():
     mahasiswa_berisiko = db.session.execute(stmt_berisiko).scalars().all()
     total_berisiko = len(mahasiswa_berisiko)
 
+    stmt_rencana_aktif = (
+        db.select(RencanaIntervensi)
+        .where(RencanaIntervensi.status != "Selesai")
+        .order_by(RencanaIntervensi.tenggat.asc())
+        .limit(10)
+    )
+    rencana_aktif = db.session.execute(stmt_rencana_aktif).scalars().all()
+    total_rencana_terlambat = db.session.scalar(
+        db.select(db.func.count(RencanaIntervensi.id)).where(
+            RencanaIntervensi.status != "Selesai",
+            RencanaIntervensi.tenggat < date.today(),
+        )
+    ) or 0
+
     # Ambil daftar prodi unik dari database
     stmt_prodi = db.select(Mahasiswa.prodi).distinct().order_by(Mahasiswa.prodi)
     daftar_prodi = db.session.execute(stmt_prodi).scalars().all()
@@ -92,6 +120,9 @@ def index():
         total_berisiko=total_berisiko,
         mahasiswa_berisiko=mahasiswa_berisiko,
         daftar_prodi=daftar_prodi,
+        rencana_aktif=rencana_aktif,
+        total_rencana_terlambat=total_rencana_terlambat,
+        batas_dekat=date.today() + timedelta(days=7),
     )
 
 
@@ -153,6 +184,38 @@ def tambah_mahasiswa():
     return render_template("tambah.html", form=form)
 
 
+# Rute Edit Mahasiswa (/mahasiswa/<nim>/edit - GET & POST)
+@app.route("/mahasiswa/<nim>/edit", methods=["GET", "POST"])
+def edit_mahasiswa(nim):
+    mahasiswa = db.session.scalar(db.select(Mahasiswa).filter_by(nim=nim))
+    if not mahasiswa:
+        abort(404)
+
+    form = MahasiswaEditForm(obj=mahasiswa)
+
+    if form.validate_on_submit():
+        mahasiswa.nama = form.nama.data.strip()
+        mahasiswa.prodi = form.prodi.data
+        mahasiswa.ipk = form.ipk.data
+        mahasiswa.kehadiran = form.kehadiran.data
+        mahasiswa.email = form.email.data.strip() if form.email.data else None
+
+        db.session.commit()
+        flash(
+            f"Data mahasiswa {mahasiswa.nama} ({mahasiswa.nim}) berhasil diperbarui!",
+            "success",
+        )
+        return redirect(url_for("detail_mahasiswa", nim=mahasiswa.nim))
+
+    # Pastikan field NIM tetap terisi sesuai mahasiswa saat validasi gagal
+    form.nim.data = mahasiswa.nim
+
+    if request.method == "POST":
+        return render_template("edit.html", form=form, mahasiswa=mahasiswa), 422
+
+    return render_template("edit.html", form=form, mahasiswa=mahasiswa)
+
+
 # Rute 4: Detail Mahasiswa & Tambah Catatan (/mahasiswa/<nim> - GET & POST)
 @app.route("/mahasiswa/<nim>", methods=["GET", "POST"])
 def detail_mahasiswa(nim):
@@ -163,6 +226,11 @@ def detail_mahasiswa(nim):
         abort(404)
 
     form = CatatanForm()
+    rencana_form = RencanaIntervensiForm()
+    status_rencana_forms = {
+        rencana.id: UbahStatusRencanaForm(data={"status": rencana.status})
+        for rencana in mahasiswa.rencana_intervensi
+    }
 
     # Penanganan penambahan catatan konseling
     if form.validate_on_submit():
@@ -180,8 +248,65 @@ def detail_mahasiswa(nim):
         "detail.html",
         mahasiswa=mahasiswa,
         form=form,
+        rencana_form=rencana_form,
+        status_rencana_forms=status_rencana_forms,
         is_berisiko=mahasiswa.is_berisiko,
     )
+
+
+@app.route("/mahasiswa/<nim>/rencana", methods=["POST"])
+def tambah_rencana_intervensi(nim):
+    mahasiswa = db.session.scalar(db.select(Mahasiswa).filter_by(nim=nim))
+
+    if not mahasiswa:
+        abort(404)
+
+    form = RencanaIntervensiForm()
+    if form.validate_on_submit():
+        rencana = RencanaIntervensi(
+            mahasiswa_id=mahasiswa.id,
+            judul=form.judul.data.strip(),
+            deskripsi=form.deskripsi.data.strip(),
+            penanggung_jawab=form.penanggung_jawab.data.strip(),
+            tenggat=form.tenggat.data,
+        )
+        db.session.add(rencana)
+        db.session.commit()
+        flash("Rencana tindak lanjut berhasil ditambahkan.", "success")
+        return redirect(url_for("detail_mahasiswa", nim=mahasiswa.nim))
+
+    status_rencana_forms = {
+        rencana.id: UbahStatusRencanaForm(data={"status": rencana.status})
+        for rencana in mahasiswa.rencana_intervensi
+    }
+    return (
+        render_template(
+            "detail.html",
+            mahasiswa=mahasiswa,
+            form=CatatanForm(),
+            rencana_form=form,
+            status_rencana_forms=status_rencana_forms,
+            is_berisiko=mahasiswa.is_berisiko,
+        ),
+        422,
+    )
+
+
+@app.route("/rencana/<int:rencana_id>/status", methods=["POST"])
+def ubah_status_rencana(rencana_id):
+    rencana = db.session.get(RencanaIntervensi, rencana_id)
+    if not rencana:
+        abort(404)
+
+    form = UbahStatusRencanaForm()
+    if form.validate_on_submit():
+        rencana.status = form.status.data
+        db.session.commit()
+        flash("Status rencana tindak lanjut berhasil diperbarui.", "success")
+    else:
+        flash("Status rencana tidak valid dan tidak diperbarui.", "danger")
+
+    return redirect(url_for("detail_mahasiswa", nim=rencana.mahasiswa.nim))
 
 
 # Rute 5: Hapus Mahasiswa (/mahasiswa/<nim>/hapus - POST Only)
@@ -222,7 +347,79 @@ def cari():
     return render_template("cari.html", daftar_prodi=daftar_prodi)
 
 
-# Rute 7: Endpoint JSON (/api/mahasiswa/<nim>)
+# Rute 7: Ekspor Data Mahasiswa ke CSV (/ekspor/mahasiswa - GET)
+@app.route("/ekspor/mahasiswa")
+def ekspor_mahasiswa():
+    status_filter = request.args.get("status", "semua").lower()
+    prodi_filter = request.args.get("prodi", "").strip()
+
+    stmt = db.select(Mahasiswa)
+    if status_filter == "berisiko":
+        stmt = stmt.where(db.or_(Mahasiswa.ipk < 2.50, Mahasiswa.kehadiran < 75))
+    elif status_filter == "aman":
+        stmt = stmt.where(db.and_(Mahasiswa.ipk >= 2.50, Mahasiswa.kehadiran >= 75))
+
+    if prodi_filter:
+        stmt = stmt.where(Mahasiswa.prodi.ilike(f"%{prodi_filter}%"))
+
+    stmt = stmt.order_by(Mahasiswa.nim.asc())
+    daftar = db.session.execute(stmt).scalars().all()
+
+    output = io.StringIO()
+    # Menuliskan UTF-8 BOM agar Excel Windows membuka karakter dengan benar
+    output.write("\ufeff")
+    writer = csv.writer(output, delimiter=",", quoting=csv.QUOTE_MINIMAL)
+
+    # Header CSV
+    writer.writerow([
+        "NIM",
+        "Nama Lengkap",
+        "Program Studi",
+        "IPK",
+        "Predikat",
+        "Kehadiran (%)",
+        "Status EWS",
+        "Email",
+        "Jumlah Catatan",
+        "Jumlah Rencana Aktif",
+    ])
+
+    for m in daftar:
+        status_ews = "BERISIKO" if m.is_berisiko else "AMAN"
+        rencana_aktif = len([r for r in m.rencana_intervensi if r.status != "Selesai"])
+        writer.writerow([
+            m.nim,
+            m.nama,
+            m.prodi,
+            f"{m.ipk:.2f}",
+            filter_predikat(m.ipk),
+            f"{m.kehadiran}%",
+            status_ews,
+            m.email or "-",
+            len(m.catatan),
+            rencana_aktif,
+        ])
+
+    csv_data = output.getvalue()
+    output.close()
+
+    nama_file = (
+        "laporan_mahasiswa_berisiko.csv"
+        if status_filter == "berisiko"
+        else "laporan_mahasiswa_siews.csv"
+    )
+
+    return Response(
+        csv_data,
+        mimetype="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": f"attachment; filename={nama_file}",
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+        },
+    )
+
+
+# Rute 8: Endpoint JSON (/api/mahasiswa/<nim>)
 @app.route("/api/mahasiswa/<nim>")
 def api_mahasiswa(nim):
     mahasiswa = db.session.scalar(db.select(Mahasiswa).filter_by(nim=nim))
@@ -355,10 +552,36 @@ def seed():
         jenis="Pribadi",
         isi="Mahasiswa mengalami kendala transportasi sehingga sering terlambat kuliah. Direkomendasikan bantuan asrama.",
     )
-    db.session.add_all([catatan_budi, catatan_dewi])
+
+    # Rencana intervensi dummy untuk mendemonstrasikan tabel tindak lanjut aktif
+    rencana_budi = RencanaIntervensi(
+        mahasiswa_id=data_dummy[1].id,
+        judul="Konseling Presensi & Remedial Nilai",
+        deskripsi="Pemberian bimbingan belajar tambahan dan pemantauan presensi mingguan.",
+        penanggung_jawab="Dosen Pembimbing Akademik",
+        tenggat=date.today() + timedelta(days=5),
+        status="Berjalan",
+    )
+    rencana_dewi = RencanaIntervensi(
+        mahasiswa_id=data_dummy[3].id,
+        judul="Advokasi Pengajuan Fasilitas Asrama",
+        deskripsi="Koordinasi dengan bagian kemahasiswaan untuk membantu kendala transportasi tempat tinggal.",
+        penanggung_jawab="Tim Konseling Mahasiswa",
+        tenggat=date.today() + timedelta(days=10),
+        status="Belum dimulai",
+    )
+
+    db.session.add_all([catatan_budi, catatan_dewi, rencana_budi, rencana_dewi])
     db.session.commit()
 
     print("SUCCESS: Database SQLite berhasil di-reset dan diisi 5 data dummy mahasiswa!")
+
+
+@app.cli.command("init-db")
+def init_db():
+    """Membuat tabel yang belum ada tanpa menghapus atau mengubah data."""
+    db.create_all()
+    print("SUCCESS: Tabel database yang belum ada berhasil dibuat.")
 
 
 # ==============================================================================
